@@ -1,0 +1,194 @@
+---
+title: "Midterm Exam"
+author: "AOYI LI"
+date: "11/2/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(dplyr)
+library(boot)
+library(olsrr)
+library(pwr)
+library(bayesplot)
+library(rstanarm)
+library(coefplot)
+```
+
+## Instruction
+
+This is your midterm exam that you are expected to work on it alone.  You may NOT  discuss any of the content of your exam with anyone except your instructor. This includes text, chat, email and other online forums.  We expect you to respect and follow the [GRS Academic and Professional Conduct Code](http://www.bu.edu/cas/files/2017/02/GRS-Academic-Conduct-Code-Final.pdf). 
+
+Although you may NOT ask anyone directly, you are allowed to use external resources such as R codes on the Internet.  If you do use someone's code, please make sure you clearly cite the origin of the code.
+
+When you finish, please compile and submit the PDF file and the link to the GitHub repository that contains the entire analysis.
+
+
+## Introduction
+
+In this exam, you will act as both the client and the consultant for the data that you collected in the data collection exercise (20pts).  Please note that you are not allowed to change the data.  The goal of this exam is to demonstrate your ability to perform the statistical analysis that you learned in this class so far.  It is important to note that significance of the analysis is not the main goal of this exam but the focus is on the appropriateness of your approaches.
+
+### Data Description (10pts)
+
+Please explain what your data is about and what the comparison of interest is.  In the process, please make sure to demonstrate that you can load your data properly into R.
+
+```{r }
+#load data
+study_room<-read.csv(file="studyroom.csv")
+study_room
+
+study_room$group<-as.factor(study_room$group)
+study_room$drink<-as.factor(study_room$drink)
+study_room$privr<-as.factor(study_room$privr)
+```
+#Data Description
+Group: Current status(undergraduate, graduate,working).
+Choice: Whether they would go to paid study room outside schools or not.(1:yes, 0:no)
+Freq: How many times they would go to the study room per week.
+Dist: The maximum acceptable distance from their home/school to the study room.
+Timesp: Average time spend in the study room.
+Price: The maximum acceptable price per hour.
+Drink: Whether they would buy drinks offered by the study room or not.(1:yes, 0:no)
+Privr: Whether they would choose a private room to study or not. (1:yes, 0:no)
+
+I plan to start my own paid study room, but site selection and pricing are the biggest problem that I am facing now. So, the data is collected to understand the market demand for study room outside schools and the differences of the demands for different groups. I created a online survey to collect data from my friends and their friends about how many times they would go to a paid study room in one week, how much they are willing to pay per hour and what is their maximum acceptable distance from their home/school to the study room.
+
+The main goal here is to compare the differences of the frequencies for each group(undergraduate,graduate and working) and to understand the factors that will affect the frequencies.
+
+### EDA (10pts)
+
+Please create one (maybe two) figure(s) that highlights the contrast of interest.  Make sure you think ahead and match your figure with the analysis.  For example, if your model requires you to take a log, make sure you take log in the figure as well.
+
+
+```{r }
+#boxplot
+study_room%>%ggplot(aes(group,freq))+
+  geom_boxplot()+ggtitle("Frequency across Groups")
+
+
+#highest acceptable price across groups
+ggplot(aes(price,freq,col=group),data=study_room)+geom_point()+geom_smooth(se=FALSE)+ggtitle("Highest Acceptable Price across Groups")
+
+```
+From the boxplot, we can find that there is not a clear difference across each group. 
+From the other plot, we can see that there might be a positive relationship between price and frequency.
+
+### Power Analysis (10pts)
+
+Please perform power analysis on the project.  Use 80% power, the sample size you used and infer the level of effect size you will be able to detect.  Discuss whether your sample size was enough for the problem at hand.  Please note that method of power analysis should match the analysis.  Also, please clearly state why you should NOT use the effect size from the fitted model.
+
+```{r }
+##2 sample t test
+#graduate and undergraduate
+pwr.t2n.test(n1=9,n2=14,d=NULL,sig.level=0.05,power=0.8)
+
+#undergraduate and working
+pwr.t2n.test(n1=14,n2=6,d=NULL,sig.level=0.05,power=0.8)
+
+#graduate and working
+pwr.t2n.test(n1=9,n2=6,d=NULL,sig.level=0.05,power=0.8)
+
+##general linear model test
+pwr.f2.test(u=2,v=26,sig.level=0.05,power=0.8)
+
+```
+Cohen suggests that d value of 0.2,0.5 and 0.8 represent small, medium, and large effect sizes respectively. Since all 3 test have d greater than 1, the difference between 2 means is larger than 1 standard deviation. Since the sample size is less than 50, it tends to over-inflate results. And the general linear model test has f2 = 0.37, indicates large effect size, which means we only need a small sample size. But my sample size is only 29, which might not be enough for the problem. 
+From the tests, the effect size is too large, the effect size from the fitted model will cause some error. Thus, it should not be used.
+
+### Modeling (10pts)
+
+Please pick a regression model that best fits your data and fit your model.  Please make sure you describe why you decide to choose the model. Also, if you are using GLM, make sure you explain your choice of link function as well.
+```{r }
+#original model
+fit<-lm(freq~dist+timesp+price+privr+group+drink,data=study_room)
+summary(fit)
+```
+I used the simple linear model will all predictors in the table to fit the original model, but the output shows that the model does not have a good fit with only one significant variable and low adjusted R square.
+
+```{r}
+#final model
+ols_step_best_subset(fit)
+
+fit1<-lm(freq~dist+price+group,data=study_room)
+summary(fit1)
+```
+Then I tried a simple variable selection method to find a better subset of variables. From the result we can see that the best model is a bivariable model with outcome frequency and predictor price. However, I want to see the coefficients for different groups and distance might be a significant predictor when sample size becomes large. In addition, I find out that the third model is better than the second one and does not have too much difference between the first one. Thus, I chose the third model as the final model, including dist, group and price as predictors, to predict to outcome.
+
+
+### Validation (10pts)
+
+Please perform a necessary validation and argue why your choice of the model is appropriate.  
+
+```{r }
+#Cross validation
+fit_11<-stan_glm(freq~dist+price+group,data=study_room,refresh=0)
+
+loo_11<-loo(fit_11)
+print(loo_11)
+
+fit_12<-glm(freq~dist+price+group,data=study_room)
+cv.glm(study_room,fit_12)$delta
+
+```
+Since elpd_loo is the estimated log score along with a standard error representing uncertainty, elpd_loo here is not a large number, and the cv.glm result which is 1.51 is also small, which means the model is fine.
+
+```{r}
+#compare models
+library(broom)
+glance(fit)%>%select(adj.r.squared,sigma,AIC,BIC,p.value)
+glance(fit1)%>%select(adj.r.squared,sigma,AIC,BIC,p.value)
+
+#marginal plot
+library(car)
+mmps(fit1, sd = FALSE, 
+    smooth=TRUE, key=TRUE)
+
+#diagnostic plot
+par(mfrow = c(2, 2))
+plot(fit1)
+```
+By comparing the final model and the original model, we can easily conclude that the final model is a better model than the original one, since it has higher adj.R square, lower AIC, etc,. In addition, 2 lines on the marginal plot are approximately to the same line, the points on the residual plot are quite random around 0 and Q-Q Plot is approximate linear, indicating that the model is not bad.
+
+### Inference (10pts)
+
+Based on the result so far please perform statistical inference to compare the comparison of interest.
+
+```{r }
+#compare groups
+study_room%>%
+  group_by(group)%>%
+  summarise(means=mean(freq, na.rm=T), sds=sd(freq, na.rm=T), n=n())
+
+#CI
+confint(fit_12)
+coefplot(fit_12,frame.plot=TRUE)
+
+```
+From the result we can see that means for different groups only have tiny differences. 
+
+All variables have the confidence intervals across 0 expect price, which means only the variable price is statistically significant on 95% confidence level.
+
+### Discussion (10pts)
+
+Please clearly state your conclusion and the implication of the result.
+
+In order to understand what factors will influence the frequency, I chose general linear regression model with price, dist and group as predictors to do the analysis. Although, price is the only significant variable in this model, I still chose to include other 2 variables because they might have some association with the outcome in the real life. From the model result, the coefficient of price shows that if the price increase by 1, the frequency will increase by 0.29, which is not really understandable. It can be easier to understand in the opposite direction which is that people who plan to go to the study room several times in a week might be willing to pay more per hour.
+
+From the group comparison analysis, we can conclude that, there is no difference for the number of times a person will go to the study room in a week across each group. It is not a result what I expect to get, and I will collect more data to do further analysis.
+
+### Limitations and future opportunity. (10pts)
+
+Please list concerns about your analysis.  Also, please state how you might go about fixing the problem in your future study.
+
+My concerns are that the result for the whole analysis is not what I expect. For example, I think distance might be a significant predictor for the number of times people would go to the study room per week. And the result for the relationship between price and frequency is also weird, because I do not think people are willing to spend that much money for one hour study in the study room. These problems might cause by the sample size and data collection bias. Because there are only 29 data points in total for 3 groups of people, it might be too small to do the analysis. In addition, I collect the data from the my friends and their friends, which means those people might have similar living environment, education background, age range and consumption level. Thus, the data might not be random sampled.
+
+In the future, I will collect more data from wide range of people and try to find more related variables to get a better regression model and understandable result.
+
+
+### Comments or questions
+If you have any comments or questions, please write them here.
+
+I have a question which is that I feel my whole analysis is weird because it seems that all predictors have no direct relationship with the outcome. Is that reasonable to do the regression analysis based on this data?
